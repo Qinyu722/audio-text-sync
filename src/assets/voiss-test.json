@@ -1,0 +1,37 @@
+{
+    "surveillance": {
+        "transcript": "我已经等了一个小时了. 非常抱歉.",
+        "transcriptChunks": [
+            [
+                0,
+                "spk_0",
+                "0-11",
+                "4.87-30.88"
+            ],
+            [
+                1,
+                "spk_1",
+                "12-16",
+                "31.49-9.24"
+            ]
+        ],
+        "translation": "I've been on hold for an hour. Sorry about that.",
+        "translationChunks": [ 
+            [
+                0,
+                "spk_0",
+                "0-30",
+                "4.87-30.88"
+            ],
+            [
+                1,
+                "spk_1",
+                "31-48",
+                "31.49-9.24"
+            ]
+        ]
+    },
+    "alert": {
+        "matchedPos": "0-11"
+    }
+}
