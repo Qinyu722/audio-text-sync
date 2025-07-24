@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef, MouseEvent } from 'react';
 import WavesurferPlayer from '@wavesurfer/react';
-import H5AudioPlayer, { RHAP_UI } from 'react-h5-audio-player';
-import 'react-h5-audio-player/lib/styles.css';
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardHeader from '@mui/material/CardHeader';
@@ -9,9 +7,12 @@ import CardContent from '@mui/material/CardContent';
 import Typography from '@mui/material/Typography';
 import Switch from '@mui/material/Switch';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions'
+import parse from 'html-react-parser';
+
 import './App.css';
 
-import testData from './assets/trader_dialogue_market.json';
+import data from './assets/trader_dialogue_market.json';
 
 type Chunk = {
     speaker: string;
@@ -23,7 +24,7 @@ type Chunk = {
 type ChunksMap = Record<string | number, Chunk>;
 
 type AudioPlayerCardProps = {
-    wavesurfer: any;
+    audioUrl: string;
     setWavesurfer: (ws: any) => void;
 };
 
@@ -37,40 +38,8 @@ type AudioTextCardProps = {
 };
 
 
-function AudioPlayerCard({ wavesurfer, setWavesurfer }: AudioPlayerCardProps) {
-    const audioUrl = '/src/assets/test-audio.mp3';
-    const audioRef = React.useRef<any>(null);
 
-    const handlePlay = () => {
-        if (wavesurfer && !wavesurfer.isPlaying()) {
-            wavesurfer.play();
-        }
-    };
-    const handlePause = () => {
-        if (wavesurfer && wavesurfer.isPlaying()) {
-            wavesurfer.pause();
-        }
-    };
-    const handleAudioPlayerSeek = (e: any) => {
-        console.log('Seek Wavesurfer event:', e);
-
-        if (wavesurfer && audioRef.current) {
-            const audio = audioRef.current.audio.current;
-            if (audio) {
-                wavesurfer.setTime(audio.currentTime);
-            }
-        }
-    };
-
-    const handleWavesurferSeek  = (e: any) => {
-        console.log('Seek payer event:', e);
-        if (wavesurfer && audioRef.current) {
-            const audio = audioRef.current.audio.current;
-            if (audio) {
-                audio.currentTime = wavesurfer.getCurrentTime();
-            }
-        }
-    };
+function AudioPlayerCard({ audioUrl, setWavesurfer }: AudioPlayerCardProps) {
 
     return (
         <Card sx={{ mb: 4 }}>
@@ -83,19 +52,7 @@ function AudioPlayerCard({ wavesurfer, setWavesurfer }: AudioPlayerCardProps) {
                     waveColor="#1976d2"
                     url={audioUrl}
                     onReady={setWavesurfer}
-                    // onSeeking={handleAudioPlayerSeek}
-                />
-                <H5AudioPlayer
-                    ref={audioRef}
-                    src={audioUrl}
-                    style={{ marginTop: 16 }}
-                    onPlay={handlePlay}
-                    onPause={handlePause}
-                    onSeeked={handleAudioPlayerSeek}
-                    showJumpControls={false}
-                    showSkipControls={false}
-                    customAdditionalControls={[]}
-                    layout="horizontal"
+                    mediaControls={true}
                 />
             </CardContent>
         </Card>
@@ -109,7 +66,7 @@ function AudioTextCard({ title, chunks, activeChunk, setActiveChunk, showSpeaker
             <CardContent sx={{ flex: 1, overflowY: 'auto', maxHeight: 400 }}>
                 {Object.entries(chunks).map(([chunkId, chunk]) => (
                     <Box
-                        key={chunkId}
+                        key={Number(chunkId)}
                         sx={{ mb: 2, display: 'flex', alignItems: 'center', cursor: 'pointer', bgcolor: activeChunk === Number(chunkId) ? '#ffe082' : 'inherit', borderRadius: 1, p: 1 }}
                         onClick={() => {
                             setActiveChunk(Number(chunkId));
@@ -124,7 +81,7 @@ function AudioTextCard({ title, chunks, activeChunk, setActiveChunk, showSpeaker
                                 {(chunk as Chunk).speaker}
                             </Box>
                         )}
-                        <Typography variant="body2" sx={{ m: 0 }}>{(chunk as Chunk).text}</Typography>
+                        <Typography variant="body2" sx={{ m: 0 }}>{parse((chunk as Chunk).text)}</Typography>
                     </Box>
                 ))}
             </CardContent>
@@ -132,10 +89,13 @@ function AudioTextCard({ title, chunks, activeChunk, setActiveChunk, showSpeaker
     );
 }
 
-function parsedAudioChunks(fullText: string, audioChunks: any[]): ChunksMap {
+function parsedAudioChunks(fullText: string, audioChunks: any[], highlights: any[], enableHighlight: boolean, setRegions: any): ChunksMap {
     const parsedChunks: ChunksMap = {};
+    const waveRagions: any[] = [];
+
     audioChunks.forEach(chunkArr => {
         const [chunkId, speakerLabelRaw, charRange, timeRange] = chunkArr;
+
         let start = 0, end = 0, startTime = 0, endTime = 0;
         if (typeof charRange === 'string') {
             [start, end] = charRange.split('-').map(Number);
@@ -143,20 +103,71 @@ function parsedAudioChunks(fullText: string, audioChunks: any[]): ChunksMap {
         if (typeof timeRange === 'string') {
             [startTime, endTime] = timeRange.split('-').map(Number);
         }
-        const text = fullText.slice(start, end + 1);
+
+        let text = renderHighlightText(fullText, start, end, highlights, enableHighlight);
+        if (text === '') {
+            text = fullText.slice(start, end + 1);
+        } else {
+            waveRagions.push({
+                start: startTime,
+                end: endTime
+            });
+        }
+
         let speaker = String(speakerLabelRaw);
         if (speaker.startsWith('spk_')) {
             speaker = speaker.replace('spk_', 'speaker_');
         }
-        parsedChunks[chunkId] = {
+        parsedChunks[Number(chunkId)] = {
             speaker,
             text,
             startTime,
             endTime,
         };
     });
+
+    setRegions(waveRagions);
     return parsedChunks;
 }
+
+function renderHighlightText(fullText: string, start: number, end: number, highlights: any[], enableHighlight: boolean): string {
+    let text = '';
+    const totalHighlights = highlights ? highlights.length : 0;
+    if (enableHighlight && totalHighlights > 0) {
+        // If there are highlights, we need to check if the current chunk overlaps with any highlight
+
+        let startPos = 0;
+        let endPos = end;
+        for (let i = 0; i < totalHighlights; i++) {
+            const highlight = highlights[i];
+
+            if (highlight.start > end || highlight.end < start) {
+                break; // No more highlights overlap with this chunk
+            } else {
+                if (highlight.start < start) {
+                    startPos = start;
+                } else {
+                    text += fullText.slice(startPos, highlight.start);
+                    startPos = highlight.start;
+                }
+                if (highlight.end < end) {
+                    endPos = highlight.end;
+                } else {
+                    endPos = end;
+                }
+                text += "<strong>" + fullText.slice(startPos, endPos + 1) + '</strong>';
+                startPos = endPos + 1;
+            }
+        }
+
+        if (endPos < end) {
+            text += fullText.slice(endPos + 1, end);
+        }
+    }
+    return text;
+}
+
+
 
 function App() {
     const [transcriptChunks, setTranscriptChunks] = useState<ChunksMap>({});
@@ -164,22 +175,53 @@ function App() {
     const [activeChunk, setActiveChunk] = useState<number | null>(null);
     const [showSpeaker, setShowSpeaker] = useState<boolean>(true);
     const [wavesurfer, setWavesurfer] = useState<any>(null);
+    const [waveRegions, setRegions] = useState<any>(null);
 
+    const testAudio = '/src/assets/test-audio.mp3';
+
+    // Parse the audio chunks from backend data
     useEffect(() => {
-        const surveillance = testData.surveillance;
+        const highlights = data.alert.matchedPos
+            .split(',')
+            .map(pos => {
+                const [start, end] = pos.split('-').map(Number);
+                return { start, end };
+            })
+            .sort((a, b) => a.start - b.start);
+
+        const surveillance = data.surveillance;
         if (surveillance.transcript && surveillance.transcriptChunks) {
-            setTranscriptChunks(parsedAudioChunks(surveillance.transcript, surveillance.transcriptChunks));
+            setTranscriptChunks(parsedAudioChunks(surveillance.transcript, surveillance.transcriptChunks, highlights, false, setRegions));
         }
         if (surveillance.translation && surveillance.translationChunks) {
-            setTranslationChunks(parsedAudioChunks(surveillance.translation, surveillance.translationChunks));
+            setTranslationChunks(parsedAudioChunks(surveillance.translation, surveillance.translationChunks, highlights, true, setRegions));
         }
+
+
     }, []);
+
+    useEffect(() => {
+        if (!wavesurfer) return;
+
+        const regions = wavesurfer.registerPlugin(RegionsPlugin.create());
+        console.log('Wave regions:', waveRegions);
+        waveRegions.forEach(region => {
+            regions.addRegion({
+                start: region.start,
+                end: region.end,
+                color: 'rgba(255, 0, 0, 0.5)',
+                drag: false,
+                resize: false,
+            })
+        });
+
+    }, [wavesurfer, waveRegions]);
 
     return (
         <Box sx={{ width: '90vw', maxWidth: '90vw', minHeight: '100vh', bgcolor: '#fafafa', p: 0, m: 0 }}>
             <Box>
                 <AudioPlayerCard
-                    wavesurfer={wavesurfer}
+                    audioUrl={testAudio}
                     setWavesurfer={setWavesurfer}
                 />
             </Box>
